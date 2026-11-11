@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>番茄闹钟</title>
+  <style>
+    :root {
+      --bg: #fdf5f3;
+      --card: #ffffff;
+      --ink: #2b2320;
+      --muted: #7a6b66;
+      --line: #eadcd7;
+      --accent: #e4572e;
+      --accent-hover: #cc4823;
+      --accent-ink: #ffffff;
+      --done: #2f9e63;
+      --done-bg: #e7f7ee;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 48px 16px;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      background: radial-gradient(1200px 600px at 50% -10%, #ffe3da, var(--bg));
+      color: var(--ink);
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    .timer {
+      width: 100%;
+      max-width: 560px;
+      padding: 28px;
+      text-align: center;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: 0 20px 50px rgba(43, 35, 32, 0.08);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 28px;
+      letter-spacing: -0.02em;
+    }
+
+    .hint {
+      margin: 6px 0 20px;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .clock {
+      margin: 8px 0 18px;
+      font-size: 72px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.03em;
+      color: var(--accent);
+    }
+
+    .clock.done {
+      color: var(--done);
+    }
+
+    .duration {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 18px;
+      font-size: 16px;
+    }
+
+    .duration input[type="range"] {
+      width: 200px;
+      accent-color: var(--accent);
+    }
+
+    .duration output {
+      min-width: 4.5em;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 12px;
+    }
+
+    button {
+      padding: 10px 22px;
+      font: inherit;
+      font-weight: 600;
+      border: 1px solid transparent;
+      border-radius: 10px;
+      cursor: pointer;
+    }
+
+    #start {
+      color: var(--accent-ink);
+      background: var(--accent);
+    }
+
+    #start:not(:disabled):hover {
+      background: var(--accent-hover);
+    }
+
+    #start:not(:disabled):active {
+      transform: translateY(1px);
+    }
+
+    #reset {
+      color: var(--ink);
+      background: transparent;
+      border-color: var(--line);
+    }
+
+    #reset:hover {
+      border-color: var(--muted);
+    }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .encouragement {
+      min-height: 52px;
+      margin: 18px 0 0;
+      padding: 0 8px;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.6;
+    }
+
+    .encouragement.show {
+      color: var(--done);
+      background: var(--done-bg);
+      padding: 14px 16px;
+      border-radius: 12px;
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .sr-only-live {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+    }
+
+    @media (max-width: 520px) {
+      body {
+        padding: 24px 12px;
+      }
+
+      .timer {
+        padding: 22px 18px;
+      }
+
+      .clock {
+        font-size: 56px;
+      }
+
+      .duration input[type="range"] {
+        width: 150px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="timer">
+    <h1>番茄闹钟</h1>
+    <p class="hint">选择 10–60 分钟的专注时间，结束后会送你一句鼓励语。</p>
+
+    <p id="clock" class="clock" role="timer" aria-live="off">25:00</p>
+
+    <div class="duration">
+      <label for="minutes">专注时长</label>
+      <input id="minutes" type="range" min="10" max="60" step="1" value="25" aria-describedby="minutes-value">
+      <output id="minutes-value" for="minutes">25 分钟</output>
+    </div>
+
+    <div class="actions">
+      <button id="start" type="button">开始</button>
+      <button id="reset" type="button">重置</button>
+    </div>
+
+    <p id="encouragement" class="encouragement" role="status" aria-live="polite"></p>
+    <p id="alert" class="sr-only-live" aria-live="assertive"></p>
+  </main>
+
+  <noscript>
+    <p>这个番茄闹钟需要启用 JavaScript 才能使用。</p>
+  </noscript>
+
+  <script>
+    (() => {
+      'use strict';
+
+      const MIN_MINUTES = 10;
+      const MAX_MINUTES = 60;
+      const DEFAULT_MINUTES = 25;
+      const TICK_MS = 250;
+
+      const ENCOURAGEMENTS = [
+        '专注结束啦！你刚刚的坚持很了不起。',
+        '这一轮番茄钟完成，给自己一个大大的赞 👍',
+        '太棒了，专注的每一分钟都在让你更强。',
+        '完成一轮专注！记得站起来伸个懒腰。',
+        '你又赢下了一段专注时光，继续保持这份节奏。',
+        '做得很好！休息几分钟，然后又是一条好汉。',
+        '每一次专注都在悄悄积累，你正在变得更好。',
+        '了不起！离目标又近了一步，去给自己倒杯水吧。',
+        '这段专注属于你，辛苦了，值得好好奖励自己。',
+        '专注完成！你可以自豪地说：我没有辜负这段时间。'
+      ];
+
+      const HEARTBEAT = 880;
+      const HEARTBEAT_END = 1320;
+
+      const clock = document.getElementById('clock');
+      const minutesInput = document.getElementById('minutes');
+      const minutesOutput = document.getElementById('minutes-value');
+      const startButton = document.getElementById('start');
+      const resetButton = document.getElementById('reset');
+      const encouragement = document.getElementById('encouragement');
+      const alertLive = document.getElementById('alert');
+
+      let audioContext = null;
+      let status = 'idle'; // idle | running | paused | done
+      let remainingMs = DEFAULT_MINUTES * 60 * 1000;
+      let endAt = 0;
+      let tickHandle = null;
+
+      function clampMinutes(value) {
+        const number = Number(value);
+        if (!Number.isFinite(number)) {
+          return DEFAULT_MINUTES;
+        }
+        return Math.min(MAX_MINUTES, Math.max(MIN_MINUTES, Math.round(number)));
+      }
+
+      function formatTime(ms) {
+        const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        return String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+      }
+
+      function selectedMs() {
+        return clampMinutes(minutesInput.value) * 60 * 1000;
+      }
+
+      function pickEncouragement(random) {
+        const index = Math.min(
+          ENCOURAGEMENTS.length - 1,
+          Math.floor(random() * ENCOURAGEMENTS.length)
+        );
+        return ENCOURAGEMENTS[index];
+      }
+
+      function render() {
+        clock.textContent = formatTime(remainingMs);
+        clock.classList.toggle('done', status === 'done');
+        minutesOutput.textContent = clampMinutes(minutesInput.value) + ' 分钟';
+        minutesInput.disabled = status === 'running' || status === 'paused';
+        startButton.textContent = status === 'running' ? '暂停' : status === 'paused' ? '继续' : '开始';
+        startButton.disabled = status === 'done';
+      }
+
+      function chime() {
+        try {
+          const Ctx = window.AudioContext || window.webkitAudioContext;
+          if (!Ctx) {
+            return;
+          }
+          audioContext = audioContext || new Ctx();
+          if (audioContext.state === 'suspended') {
+            audioContext.resume().catch(() => {});
+          }
+          [HEARTBEAT, HEARTBEAT_END].forEach((frequency, index) => {
+            const osc = audioContext.createOscillator();
+            const gain = audioContext.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = frequency;
+            gain.gain.setValueAtTime(0.0001, audioContext.currentTime);
+            const offset = index * 0.35;
+            gain.gain.exponentialRampToValueAtTime(0.25, audioContext.currentTime + offset + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + offset + 0.32);
+            osc.connect(gain).connect(audioContext.destination);
+            osc.start(audioContext.currentTime + offset);
+            osc.stop(audioContext.currentTime + offset + 0.35);
+          });
+        } catch (error) {
+          // Sound is a bonus; the visual message is the reliable signal.
+        }
+      }
+
+      function finish() {
+        stopTicking();
+        remainingMs = 0;
+        status = 'done';
+        const message = pickEncouragement(Math.random);
+        encouragement.textContent = message;
+        encouragement.classList.add('show');
+        alertLive.textContent = '时间到！' + message;
+        chime();
+        render();
+      }
+
+      function stopTicking() {
+        if (tickHandle !== null) {
+          clearInterval(tickHandle);
+          tickHandle = null;
+        }
+      }
+
+      function tick() {
+        remainingMs = Math.max(0, endAt - Date.now());
+        if (remainingMs <= 0) {
+          finish();
+          return;
+        }
+        clock.textContent = formatTime(remainingMs);
+      }
+
+      function startTicking() {
+        stopTicking();
+        endAt = Date.now() + remainingMs;
+        tickHandle = setInterval(tick, TICK_MS);
+      }
+
+      function startOrPause() {
+        if (status === 'running') {
+          remainingMs = Math.max(0, endAt - Date.now());
+          stopTicking();
+          status = 'paused';
+          render();
+          return;
+        }
+        if (status === 'done') {
+          return;
+        }
+        if (status === 'idle') {
+          remainingMs = selectedMs();
+        }
+        encouragement.textContent = '';
+        encouragement.classList.remove('show');
+        alertLive.textContent = '';
+        status = 'running';
+        startTicking();
+        tick();
+        render();
+      }
+
+      function reset() {
+        stopTicking();
+        status = 'idle';
+        remainingMs = selectedMs();
+        encouragement.textContent = '';
+        encouragement.classList.remove('show');
+        alertLive.textContent = '';
+        render();
+      }
+
+      minutesInput.addEventListener('input', () => {
+        if (status === 'idle') {
+          remainingMs = selectedMs();
+        }
+        render();
+      });
+
+      startButton.addEventListener('click', startOrPause);
+      resetButton.addEventListener('click', reset);
+
+      // Keep the countdown honest if the tab was in the background or the clock changed.
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && status === 'running') {
+          tick();
+        }
+      });
+
+      render();
+    })();
+  </script>
+</body>
+</html>
