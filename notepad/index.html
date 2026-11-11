@@ -71,7 +71,7 @@
     textarea {
       display: block;
       width: 100%;
-      min-height: 320px;
+      min-height: 280px;
       padding: 14px 16px;
       resize: vertical;
       color: inherit;
@@ -122,6 +122,7 @@
       transform: translateY(1px);
     }
 
+    #cancel,
     #clear {
       color: var(--ink);
       background: transparent;
@@ -141,6 +142,82 @@
       font-size: 14px;
     }
 
+    .saved {
+      margin-top: 24px;
+      padding-top: 22px;
+      border-top: 1px solid var(--line);
+    }
+
+    .saved h2 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: -0.01em;
+    }
+
+    .entries {
+      display: grid;
+      gap: 10px;
+      margin: 14px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .entry {
+      padding: 12px 14px;
+      background: #fbfcff;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+
+    .entry-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px 12px;
+    }
+
+    .entry time {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .entry-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .entry-actions button {
+      padding: 5px 12px;
+      color: var(--ink);
+      background: transparent;
+      border-color: var(--line);
+      font-size: 13px;
+    }
+
+    .entry-actions .edit:hover {
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .entry-actions .delete:hover {
+      color: var(--danger);
+      background: var(--danger-bg);
+      border-color: var(--danger);
+    }
+
+    .entry-text {
+      margin: 8px 0 0;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    .empty {
+      margin: 12px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
     @media (max-width: 520px) {
       body {
         padding: 24px 12px;
@@ -151,7 +228,7 @@
       }
 
       textarea {
-        min-height: 260px;
+        min-height: 220px;
       }
     }
   </style>
@@ -159,35 +236,50 @@
 <body>
   <main class="notepad">
     <h1>Notepad</h1>
-    <p class="hint">Type below. Your note is saved automatically in this browser.</p>
+    <p class="hint">Type a note and press Save to add it to the list below. Your draft is saved automatically.</p>
 
     <label class="sr-only" for="note">Note</label>
     <textarea id="note" placeholder="Start typing&hellip;" spellcheck="true"></textarea>
 
     <div class="actions">
       <button id="save" type="button">Save</button>
+      <button id="cancel" type="button" hidden>Cancel</button>
       <button id="clear" type="button">Clear</button>
     </div>
 
     <p id="status" class="status" role="status" aria-live="polite"></p>
+
+    <section class="saved" aria-labelledby="saved-heading">
+      <h2 id="saved-heading">Saved notes</h2>
+      <p id="empty-state" class="empty">No saved notes yet.</p>
+      <ul id="entries" class="entries"></ul>
+    </section>
   </main>
 
   <noscript>
-    <p>This demo needs JavaScript enabled to save your note.</p>
+    <p>This demo needs JavaScript enabled to save your notes.</p>
   </noscript>
 
   <script>
     (() => {
       'use strict';
 
-      const STORAGE_KEY = 'notepad-demo.note';
+      const DRAFT_KEY = 'notepad-demo.note';
+      const ENTRIES_KEY = 'notepad-demo.entries';
 
       const note = document.getElementById('note');
       const status = document.getElementById('status');
       const saveButton = document.getElementById('save');
+      const cancelButton = document.getElementById('cancel');
       const clearButton = document.getElementById('clear');
+      const entriesList = document.getElementById('entries');
+      const emptyState = document.getElementById('empty-state');
 
+      let entries = [];
+      let editingId = null;
+      let draftBeforeEdit = '';
       let statusTimer;
+      let autoSaveTimer;
 
       function flashStatus(message) {
         status.textContent = message;
@@ -199,20 +291,38 @@
         }
       }
 
-      // Write the current note to localStorage. Returns true on success.
-      function persist() {
+      function createId() {
+        return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+      }
+
+      function formatTime(iso) {
+        const date = new Date(iso);
+        if (Number.isNaN(date.getTime())) {
+          return 'Unknown time';
+        }
+        return date.toLocaleString(undefined, {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+      }
+
+      // Write the current draft to localStorage. Returns true on success.
+      function persistDraft() {
         try {
-          localStorage.setItem(STORAGE_KEY, note.value);
+          localStorage.setItem(DRAFT_KEY, note.value);
           return true;
         } catch (error) {
-          flashStatus('Could not save: browser storage is unavailable.');
+          flashStatus('Could not save the draft: browser storage is unavailable.');
           return false;
         }
       }
 
-      function restore() {
+      function restoreDraft() {
         try {
-          const saved = localStorage.getItem(STORAGE_KEY);
+          const saved = localStorage.getItem(DRAFT_KEY);
           if (saved !== null) {
             note.value = saved;
           }
@@ -221,34 +331,240 @@
         }
       }
 
-      let autoSaveTimer;
+      function isEntry(value) {
+        return (
+          value !== null &&
+          typeof value === 'object' &&
+          typeof value.id === 'string' &&
+          typeof value.text === 'string' &&
+          typeof value.savedAt === 'string'
+        );
+      }
 
-      note.addEventListener('input', () => {
-        if (!persist()) {
+      function loadEntries() {
+        try {
+          const raw = localStorage.getItem(ENTRIES_KEY);
+          if (!raw) {
+            return [];
+          }
+          const parsed = JSON.parse(raw);
+          return Array.isArray(parsed) ? parsed.filter(isEntry) : [];
+        } catch (error) {
+          flashStatus('Saved notes could not be loaded.');
+          return [];
+        }
+      }
+
+      function persistEntries() {
+        try {
+          localStorage.setItem(ENTRIES_KEY, JSON.stringify(entries));
+          return true;
+        } catch (error) {
+          flashStatus('Could not save notes: browser storage is unavailable.');
+          return false;
+        }
+      }
+
+      function renderEntries() {
+        entriesList.textContent = '';
+        emptyState.hidden = entries.length > 0;
+
+        for (const entry of entries) {
+          const item = document.createElement('li');
+          item.className = 'entry';
+
+          const head = document.createElement('div');
+          head.className = 'entry-head';
+
+          const time = document.createElement('time');
+          time.dateTime = entry.savedAt;
+          time.textContent = formatTime(entry.savedAt);
+
+          const actions = document.createElement('div');
+          actions.className = 'entry-actions';
+
+          const editButton = document.createElement('button');
+          editButton.type = 'button';
+          editButton.className = 'edit';
+          editButton.textContent = 'Edit';
+          editButton.setAttribute('aria-label', 'Edit note saved ' + formatTime(entry.savedAt));
+          editButton.addEventListener('click', () => startEditing(entry.id));
+
+          const deleteButton = document.createElement('button');
+          deleteButton.type = 'button';
+          deleteButton.className = 'delete';
+          deleteButton.textContent = 'Delete';
+          deleteButton.setAttribute('aria-label', 'Delete note saved ' + formatTime(entry.savedAt));
+          deleteButton.addEventListener('click', () => deleteEntry(entry.id));
+
+          actions.append(editButton, deleteButton);
+          head.append(time, actions);
+
+          const text = document.createElement('p');
+          text.className = 'entry-text';
+          text.textContent = entry.text;
+
+          item.append(head, text);
+          entriesList.append(item);
+        }
+      }
+
+      function stopEditing() {
+        editingId = null;
+        draftBeforeEdit = '';
+        saveButton.textContent = 'Save';
+        cancelButton.hidden = true;
+      }
+
+      function startEditing(id) {
+        const entry = entries.find((item) => item.id === id);
+        if (!entry) {
           return;
         }
-        // The note is saved on every keystroke; show the hint only after a pause.
         clearTimeout(autoSaveTimer);
-        autoSaveTimer = setTimeout(() => flashStatus('Saved'), 400);
-      });
-
-      saveButton.addEventListener('click', () => {
-        clearTimeout(autoSaveTimer);
-        if (persist()) {
-          flashStatus('Saved');
+        if (editingId === null) {
+          draftBeforeEdit = note.value;
         }
-      });
+        editingId = id;
+        note.value = entry.text;
+        persistDraft();
+        saveButton.textContent = 'Update';
+        cancelButton.hidden = false;
+        flashStatus('Editing saved note');
+        note.focus();
+      }
 
-      clearButton.addEventListener('click', () => {
+      function saveNewEntry() {
         clearTimeout(autoSaveTimer);
+        if (!note.value.trim()) {
+          flashStatus('Type a note first.');
+          return;
+        }
+
+        const entry = {
+          id: createId(),
+          text: note.value,
+          savedAt: new Date().toISOString(),
+        };
+        entries.unshift(entry);
+
+        if (!persistEntries()) {
+          entries.shift();
+          renderEntries();
+          return;
+        }
+
         note.value = '';
-        if (persist()) {
+        persistDraft();
+        renderEntries();
+        flashStatus('Saved');
+      }
+
+      function updateEntry() {
+        const entry = entries.find((item) => item.id === editingId);
+        if (!entry) {
+          stopEditing();
+          return;
+        }
+        clearTimeout(autoSaveTimer);
+        if (!note.value.trim()) {
+          flashStatus('Type a note first.');
+          return;
+        }
+
+        const previousText = entry.text;
+        const previousSavedAt = entry.savedAt;
+        entry.text = note.value;
+        entry.savedAt = new Date().toISOString();
+
+        if (!persistEntries()) {
+          entry.text = previousText;
+          entry.savedAt = previousSavedAt;
+          return;
+        }
+
+        stopEditing();
+        note.value = '';
+        persistDraft();
+        renderEntries();
+        flashStatus('Updated');
+      }
+
+      function cancelEditing() {
+        if (editingId === null) {
+          return;
+        }
+        clearTimeout(autoSaveTimer);
+        const draft = draftBeforeEdit;
+        stopEditing();
+        note.value = draft;
+        persistDraft();
+        flashStatus('Edit cancelled');
+        note.focus();
+      }
+
+      function deleteEntry(id) {
+        const index = entries.findIndex((item) => item.id === id);
+        if (index === -1) {
+          return;
+        }
+        clearTimeout(autoSaveTimer);
+        const wasEditing = editingId === id;
+        if (wasEditing) {
+          stopEditing();
+        }
+
+        const removed = entries.splice(index, 1)[0];
+        if (!persistEntries()) {
+          entries.splice(index, 0, removed);
+          renderEntries();
+          return;
+        }
+
+        if (wasEditing) {
+          note.value = '';
+          persistDraft();
+        }
+        renderEntries();
+        flashStatus('Deleted');
+      }
+
+      function clearDraft() {
+        clearTimeout(autoSaveTimer);
+        if (editingId !== null) {
+          stopEditing();
+        }
+        note.value = '';
+        if (persistDraft()) {
           flashStatus('Cleared');
         }
         note.focus();
+      }
+
+      note.addEventListener('input', () => {
+        if (!persistDraft()) {
+          return;
+        }
+        // The draft is saved on every keystroke; show the hint only after a pause.
+        flashStatus('');
+        clearTimeout(autoSaveTimer);
+        autoSaveTimer = setTimeout(() => flashStatus('Draft saved'), 400);
       });
 
-      restore();
+      saveButton.addEventListener('click', () => {
+        if (editingId !== null) {
+          updateEntry();
+        } else {
+          saveNewEntry();
+        }
+      });
+
+      cancelButton.addEventListener('click', cancelEditing);
+      clearButton.addEventListener('click', clearDraft);
+
+      entries = loadEntries();
+      restoreDraft();
+      renderEntries();
     })();
   </script>
 </body>
