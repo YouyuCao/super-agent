@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Notepad Demo</title>
+  <style>
+    :root {
+      --bg: #f4f6fb;
+      --card: #ffffff;
+      --ink: #1f2430;
+      --muted: #697386;
+      --line: #d9dee9;
+      --accent: #3b5bdb;
+      --accent-hover: #2f4bc4;
+      --accent-ink: #ffffff;
+      --danger: #c0392b;
+      --danger-bg: #fdecea;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 48px 16px;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      background: radial-gradient(1200px 600px at 50% -10%, #e6ecff, var(--bg));
+      color: var(--ink);
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    }
+
+    .notepad {
+      width: 100%;
+      max-width: 680px;
+      padding: 28px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: 0 20px 50px rgba(31, 36, 48, 0.08);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 28px;
+      letter-spacing: -0.02em;
+    }
+
+    .hint {
+      margin: 6px 0 20px;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    textarea {
+      display: block;
+      width: 100%;
+      min-height: 320px;
+      padding: 14px 16px;
+      resize: vertical;
+      color: inherit;
+      background: #fbfcff;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      font: inherit;
+      font-size: 16px;
+      line-height: 1.55;
+    }
+
+    textarea::placeholder {
+      color: #9aa3b5;
+    }
+
+    textarea:focus {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+      border-color: var(--accent);
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    button {
+      padding: 10px 20px;
+      font: inherit;
+      font-weight: 600;
+      border: 1px solid transparent;
+      border-radius: 10px;
+      cursor: pointer;
+    }
+
+    #save {
+      color: var(--accent-ink);
+      background: var(--accent);
+    }
+
+    #save:hover {
+      background: var(--accent-hover);
+    }
+
+    #save:active {
+      transform: translateY(1px);
+    }
+
+    #clear {
+      color: var(--ink);
+      background: transparent;
+      border-color: var(--line);
+    }
+
+    #clear:hover {
+      color: var(--danger);
+      background: var(--danger-bg);
+      border-color: var(--danger);
+    }
+
+    .status {
+      min-height: 20px;
+      margin: 12px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    @media (max-width: 520px) {
+      body {
+        padding: 24px 12px;
+      }
+
+      .notepad {
+        padding: 22px 18px;
+      }
+
+      textarea {
+        min-height: 260px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="notepad">
+    <h1>Notepad</h1>
+    <p class="hint">Type below. Your note is saved automatically in this browser.</p>
+
+    <label class="sr-only" for="note">Note</label>
+    <textarea id="note" placeholder="Start typing&hellip;" spellcheck="true"></textarea>
+
+    <div class="actions">
+      <button id="save" type="button">Save</button>
+      <button id="clear" type="button">Clear</button>
+    </div>
+
+    <p id="status" class="status" role="status" aria-live="polite"></p>
+  </main>
+
+  <noscript>
+    <p>This demo needs JavaScript enabled to save your note.</p>
+  </noscript>
+
+  <script>
+    (() => {
+      'use strict';
+
+      const STORAGE_KEY = 'notepad-demo.note';
+
+      const note = document.getElementById('note');
+      const status = document.getElementById('status');
+      const saveButton = document.getElementById('save');
+      const clearButton = document.getElementById('clear');
+
+      let statusTimer;
+
+      function flashStatus(message) {
+        status.textContent = message;
+        clearTimeout(statusTimer);
+        if (message) {
+          statusTimer = setTimeout(() => {
+            status.textContent = '';
+          }, 2000);
+        }
+      }
+
+      // Write the current note to localStorage. Returns true on success.
+      function persist() {
+        try {
+          localStorage.setItem(STORAGE_KEY, note.value);
+          return true;
+        } catch (error) {
+          flashStatus('Could not save: browser storage is unavailable.');
+          return false;
+        }
+      }
+
+      function restore() {
+        try {
+          const saved = localStorage.getItem(STORAGE_KEY);
+          if (saved !== null) {
+            note.value = saved;
+          }
+        } catch (error) {
+          flashStatus('Auto-save is unavailable in this browser.');
+        }
+      }
+
+      let autoSaveTimer;
+
+      note.addEventListener('input', () => {
+        if (!persist()) {
+          return;
+        }
+        // The note is saved on every keystroke; show the hint only after a pause.
+        clearTimeout(autoSaveTimer);
+        autoSaveTimer = setTimeout(() => flashStatus('Saved'), 400);
+      });
+
+      saveButton.addEventListener('click', () => {
+        clearTimeout(autoSaveTimer);
+        if (persist()) {
+          flashStatus('Saved');
+        }
+      });
+
+      clearButton.addEventListener('click', () => {
+        clearTimeout(autoSaveTimer);
+        note.value = '';
+        if (persist()) {
+          flashStatus('Cleared');
+        }
+        note.focus();
+      });
+
+      restore();
+    })();
+  </script>
+</body>
+</html>
